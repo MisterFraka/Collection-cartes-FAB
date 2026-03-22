@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Collection Flesh and Blood</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: linear-gradient(135deg, #1a093e, #050505);
+      color: white;
+      min-height: 100vh;
+    }
+
+    header {
+      text-align: center;
+      padding: 24px 16px 12px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 2.2rem;
+    }
+
+    .subtitle {
+      margin-top: 8px;
+      opacity: 0.8;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    .controls {
+      display: grid;
+      grid-template-columns: 1fr 220px 220px;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    select, input {
+      width: 100%;
+      padding: 12px 14px;
+      border: none;
+      border-radius: 14px;
+      outline: none;
+      font-size: 1rem;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .stat {
+      background: rgba(255,255,255,0.1);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 18px;
+      padding: 16px;
+      text-align: center;
+      backdrop-filter: blur(10px);
+    }
+
+    .stat-label {
+      opacity: 0.8;
+      margin-bottom: 8px;
+    }
+
+    .stat-value {
+      font-size: 1.6rem;
+      font-weight: bold;
+    }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 16px;
+    }
+
+    .card {
+      background: rgba(255,255,255,0.1);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 20px;
+      padding: 16px;
+      backdrop-filter: blur(12px);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+    }
+
+    .card h2 {
+      margin: 0 0 10px 0;
+      font-size: 1.05rem;
+      line-height: 1.35;
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .badge {
+      padding: 5px 10px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.12);
+      font-size: 0.85rem;
+    }
+
+    .owned-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 10px;
+      font-weight: bold;
+    }
+
+    .status {
+      margin-top: 10px;
+      opacity: 0.9;
+    }
+
+    .empty {
+      text-align: center;
+      padding: 40px 20px;
+      opacity: 0.8;
+      font-size: 1.1rem;
+    }
+
+    @media (max-width: 900px) {
+      .controls,
+      .stats {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🃏 Collection Flesh and Blood</h1>
+    <div class="subtitle">Choisis une extension, puis coche les cartes que tu possèdes</div>
+  </header>
+
+  <div class="container">
+    <div class="controls">
+      <select id="setSelect">
+        <option value="">-- Choisir une extension --</option>
+      </select>
+
+      <select id="rarityFilter">
+        <option value="all">Toutes les raretés</option>
+      </select>
+
+      <input id="searchInput" type="text" placeholder="Rechercher une carte..." />
+    </div>
+
+    <div class="stats">
+      <div class="stat">
+        <div class="stat-label">Cartes affichées</div>
+        <div class="stat-value" id="totalCards">0</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Possédées</div>
+        <div class="stat-value" id="ownedCards">0</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Manquantes</div>
+        <div class="stat-value" id="missingCards">0</div>
+      </div>
+    </div>
+
+    <div id="cardsContainer" class="cards"></div>
+    <div id="emptyState" class="empty">Choisis une extension pour afficher les cartes.</div>
+  </div>
+
+  <script>
+    let allCards = [];
+    let ownership = JSON.parse(localStorage.getItem("fab_owned_cards")) || {};
+
+    const setSelect = document.getElementById("setSelect");
+    const rarityFilter = document.getElementById("rarityFilter");
+    const searchInput = document.getElementById("searchInput");
+    const cardsContainer = document.getElementById("cardsContainer");
+    const emptyState = document.getElementById("emptyState");
+
+    function saveOwnership() {
+      localStorage.setItem("fab_owned_cards", JSON.stringify(ownership));
+    }
+
+    function toggleOwned(cardId) {
+      ownership[cardId] = !ownership[cardId];
+      saveOwnership();
+      renderCards();
+    }
+
+    function populateSets() {
+      const sets = [...new Set(allCards.map(card => card.set_code))]
+        .sort((a, b) => a.localeCompare(b));
+
+      sets.forEach(setCode => {
+        const setName = allCards.find(card => card.set_code === setCode)?.set_name || setCode;
+        const option = document.createElement("option");
+        option.value = setCode;
+        option.textContent = `${setName} (${setCode})`;
+        setSelect.appendChild(option);
+      });
+    }
+
+    function populateRarities(selectedSet) {
+      rarityFilter.innerHTML = '<option value="all">Toutes les raretés</option>';
+
+      if (!selectedSet) return;
+
+      const rarities = [...new Set(
+        allCards
+          .filter(card => card.set_code === selectedSet)
+          .map(card => card.rarity)
+      )].sort((a, b) => a.localeCompare(b));
+
+      rarities.forEach(rarity => {
+        const option = document.createElement("option");
+        option.value = rarity;
+        option.textContent = rarity;
+        rarityFilter.appendChild(option);
+      });
+    }
+
+    function updateStats(filteredCards) {
+      const ownedCount = filteredCards.filter(card => ownership[card.id]).length;
+      const totalCount = filteredCards.length;
+      const missingCount = totalCount - ownedCount;
+
+      document.getElementById("totalCards").textContent = totalCount;
+      document.getElementById("ownedCards").textContent = ownedCount;
+      document.getElementById("missingCards").textContent = missingCount;
+    }
+
+    function renderCards() {
+      const selectedSet = setSelect.value;
+      const selectedRarity = rarityFilter.value;
+      const search = searchInput.value.toLowerCase().trim();
+
+      cardsContainer.innerHTML = "";
+
+      if (!selectedSet) {
+        emptyState.style.display = "block";
+        emptyState.textContent = "Choisis une extension pour afficher les cartes.";
+        updateStats([]);
+        return;
+      }
+
+      let filteredCards = allCards.filter(card => card.set_code === selectedSet);
+
+      if (selectedRarity !== "all") {
+        filteredCards = filteredCards.filter(card => card.rarity === selectedRarity);
+      }
+
+      if (search) {
+        filteredCards = filteredCards.filter(card =>
+          card.name.toLowerCase().includes(search)
+        );
+      }
+
+      updateStats(filteredCards);
+
+      if (filteredCards.length === 0) {
+        emptyState.style.display = "block";
+        emptyState.textContent = "Aucune carte trouvée pour ce filtre.";
+        return;
+      }
+
+      emptyState.style.display = "none";
+
+      filteredCards.forEach(card => {
+        const isOwned = !!ownership[card.id];
+
+        const div = document.createElement("div");
+        div.className = "card";
+
+        div.innerHTML = `
+          <h2>${card.name}</h2>
+          <div class="meta">
+            <span class="badge">${card.set_name}</span>
+            <span class="badge">Rareté : ${card.rarity}</span>
+            ${card.number ? `<span class="badge">#${card.number}</span>` : ""}
+          </div>
+          <div class="status">${isOwned ? "✅ Je la possède" : "⭕ Je ne la possède pas"}</div>
+          <label class="owned-row">
+            <input type="checkbox" ${isOwned ? "checked" : ""}>
+            Je possède cette carte
+          </label>
+        `;
+
+        const checkbox = div.querySelector('input[type="checkbox"]');
+        checkbox.addEventListener("change", () => toggleOwned(card.id));
+
+        cardsContainer.appendChild(div);
+      });
+    }
+
+    async function loadCards() {
+      try {
+        const response = await fetch("cards.json");
+        if (!response.ok) {
+          throw new Error("Impossible de charger cards.json");
+        }
+
+        allCards = await response.json();
+        populateSets();
+      } catch (error) {
+        emptyState.style.display = "block";
+        emptyState.textContent = "Erreur lors du chargement des cartes.";
+        console.error(error);
+      }
+    }
+
+    setSelect.addEventListener("change", () => {
+      populateRarities(setSelect.value);
+      renderCards();
+    });
+
+    rarityFilter.addEventListener("change", renderCards);
+    searchInput.addEventListener("input", renderCards);
+
+    loadCards();
+  </script>
+</body>
+</html>
